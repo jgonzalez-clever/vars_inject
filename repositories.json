@@ -1,8 +1,8 @@
 {
-    "owner": "BancoBice",
-    "user": "wfestupinanmex_bice",
+    "owner": "jgonzalez-clever",
+    "user": "jgonzalez-clever",
     "repositories": [
-        {"repo_name": "SISHOBAPE-fe-cuenta-caja-b"},
-        {"repo_name": "SISHOBAPE-fe-beneficios"}       
+        {"repo_name": "CODEOWNERS-injection"},
+        {"repo_name": "PROJUPDATE-codeowners"}       
     ]
 }
