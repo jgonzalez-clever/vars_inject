@@ -1,0 +1,6 @@
+{
+    "variables": [
+        {"name": "ANGULAR_VERSION", "value": "13.0.0"},
+        {"name": "NODE_VERSION", "value": "12"}
+      ]
+}
