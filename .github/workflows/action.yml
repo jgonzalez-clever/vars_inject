@@ -58,6 +58,15 @@ jobs:
           fi
 
 
+          # Check if the variable exists
+          response=$(curl -s -o /dev/null -w "%{http_code}" -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${{ env.GH_TOKEN }}" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${{ env.OWNER }}/${{ matrix.repositorie }}/actions/variables/NODE_VERSION")
+          
+          # If the response code is 200, the variable exists
+          if [ "$response" -eq 200 ]; then
+            # Delete the variable
+            curl -L -X DELETE -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${{ env.GH_TOKEN }}" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${{ env.OWNER }}/${{ matrix.repositorie }}/actions/variables/NODE_VERSION"
+          fi
+
           # Leer el JSON en un array
           arr=($(jq -c '.[]' env.json))
 
