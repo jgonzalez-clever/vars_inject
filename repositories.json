@@ -1,0 +1,8 @@
+{
+    "owner": "BancoBice",
+    "user": "wfestupinanmex_bice",
+    "repositories": [
+        {"repo_name": "SISHOBAPE-fe-cuenta-caja-b"},
+        {"repo_name": "SISHOBAPE-fe-beneficios"}       
+    ]
+}
