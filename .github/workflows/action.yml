@@ -1,4 +1,4 @@
-name: Create VAR ENV
+name: Create VAR REP AUTO
 
 on:
   workflow_dispatch:
@@ -10,6 +10,7 @@ jobs:
         REPOSITORIES: ${{ steps.set-matrix.outputs.REPO }}
         OWNER: ${{ steps.set-owner.outputs.OW }}
         ENV-NAME: ${{ steps.set-name-env.outputs.NE }}
+        USER: ${{ steps.set-user.outputs.US }}
       steps:
         - name: Checkout to repository
           uses: actions/checkout@v3
@@ -21,8 +22,12 @@ jobs:
         - name: Set owner
           id: set-owner
           run: echo "OW=$(jq -r '.owner' repositories.json)" >> $GITHUB_OUTPUT 
+
+        - name: Set user
+          id: set-user
+          run: echo "US=$(jq -r '.user' repositories.json)" >> $GITHUB_OUTPUT 
         
-  create-ENV:
+  create-VAR:
     runs-on: ubuntu-latest
     needs: [Get-Repositories-To-Inject]
     strategy:
@@ -41,80 +46,138 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           OWNER: ${{ needs.Get-Repositories-To-Inject.outputs.OWNER }}
           ENV-NAME: ${{ needs.Get-Repositories-To-Inject.outputs.ENV-NAME }}
+          USER: ${{ needs.Get-Repositories-To-Inject.outputs.USER }}
         run: |
-          
-          echo "${{ env.OWNER }}"
-          echo "${{ matrix.repositorie }}"
-          echo "${{ env.ENV-NAME }} "
+            project_name=$(echo "${{ matrix.repositorie }}" | sed 's/-.*//' | tr '[:upper:]' '[:lower:]')
+            rep_name=$(echo "${{ matrix.repositorie }}" | sed 's/^[^-]*-//')
+            echo "$project_name"
+            echo "$rep_name"
+            echo "${{ env.OWNER }}"
+            echo "${{ matrix.repositorie }}"
+            echo "${{ env.USER }}"
+            
+            response=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${{ env.GH_TOKEN }}" "https://api.github.com/repos/${{ env.OWNER }}/${{ matrix.repositorie }}")
 
-          response=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${{ env.GH_TOKEN }}" "https://api.github.com/repos/${{ env.OWNER }}/${{ matrix.repositorie }}")
-
-          # Verificar el código de respuesta
-          if [ "$response" -eq 200 ]; then
-            echo "El repositorio ${{ env.OWNER }}/${{ matrix.repositorie }} existe."
-          else
-            echo "Error: El repositorio ${{ env.OWNER }}/${{ matrix.repositorie }} no existe."
-            exit 1  # Salir con un código de error
-          fi
-
-
-          # Check if the variable exists
-          response=$(curl -s -o /dev/null -w "%{http_code}" -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${{ env.GH_TOKEN }}" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${{ env.OWNER }}/${{ matrix.repositorie }}/actions/variables/NODE_VERSION")
-          
-          # If the response code is 200, the variable exists
-          if [ "$response" -eq 200 ]; then
-            # Delete the variable
-            curl -L -X DELETE -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${{ env.GH_TOKEN }}" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${{ env.OWNER }}/${{ matrix.repositorie }}/actions/variables/NODE_VERSION"
-          fi
-
-          # Leer el JSON en un array
-          arr=($(jq -c '.[]' env.json))
+            # Verificar el código de respuesta
+            if [ "$response" -eq 200 ]; then
+              echo "El repositorio ${{ env.OWNER }}/${{ matrix.repositorie }} existe."
+            else
+              echo "Error: El repositorio ${{ env.OWNER }}/${{ matrix.repositorie }} no existe."
+              exit 1  # Salir con un código de error
+            fi
 
 
-          # Iterar sobre los elementos del array
-          for i in "${!arr[@]}"; do
-              # Extraer el valor de 'name_env' para el índice actual
-              NE=$(jq -r ".[$i].name_env" env.json)
-              
-              # Extraer el valor de 'body_parameters' para el índice actual
-              BODY_ENV=$(jq -c ".[$i].body_parameters" env.json | tr -d '[]' | sed 's/"//g')
+            # Check if the variable exists
+            responseVar=$(curl -s -o /dev/null -w "%{http_code}" -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${{ env.GH_TOKEN }}" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${{ env.OWNER }}/${{ matrix.repositorie }}/actions/variables/NODE_VERSION")
+            
+            # If the response code is 200, the variable exists
+            if [ "$responseVar" -eq 200 ]; then
+              # Delete the variable
+              curl -L -X DELETE -H "Accept: application/vnd.github+json" -H "Authorization: Bearer ${{ env.GH_TOKEN }}" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/${{ env.OWNER }}/${{ matrix.repositorie }}/actions/variables/NODE_VERSION"
+            fi
 
-              # Imprimir el valor de 'name_env' y 'body_parameters'
-              echo "NE=$NE, BODY_ENV=$BODY_ENV"
+            git clone https://${{ env.USER }}:${{ env.GH_TOKEN }}@github.com/${{ env.OWNER }}/${{ matrix.repositorie }}.git
+            ls
+            cd ${{ matrix.repositorie }}
+            # Nombre de la rama remota a verificar
+            REMOTE_BRANCH="bamboo-specs"
+            
+            # Verificar si la rama remota existe
+            if git ls-remote --exit-code --heads origin "$REMOTE_BRANCH" >/dev/null 2>&1; then
+                echo "La rama remota '$REMOTE_BRANCH' existe."
+                # Hacer checkout a la rama remota
+                git checkout "origin/$REMOTE_BRANCH"
+                
+                # Hacer un pull para asegurarse de tener la última versión de la rama
+                git fetch origin
+                git reset --hard origin/bamboo-specs
 
-              # Realizar la solicitud curl para actualizar el entorno en GitHub
-              curl -L \
-                -X PUT \
+                tree
+                # Mostrar el contenido del archivo plan.yaml y guardar las variables NAMESPACE y exclusions
+                #output=$(cat ./bamboo-specs/build/plan.yaml)
+                file="./bamboo-specs/build/plan.yaml"
+                if [ -f "$file" ]; then
+                    output=$(cat "$file")
+                else
+                    echo "El archivo $file no existe."
+                fi
+                NAMESPACE=$(echo "$output" | grep -oP 'NAMESPACE:\s*\K\S+' || echo "default")
+                exclusions=$(grep -oP 'exclusions:\s*\K.*' <<< "$output" | tr -d ' ' || echo "vacio")
+                
+
+                # Escapar los caracteres especiales en la variable exclusions
+                exclusions_escaped=$(echo "$exclusions" | jq -sRr @json)
+
+
+            else
+                echo "La rama remota '$REMOTE_BRANCH' no existe."
+            fi
+
+            # Verificar si la variable exclusion está vacía
+            if [ -z "$exclusion" ]; then
+                exclusion="default"
+            fi
+            
+            echo "El valor de exclusion es: $exclusion"
+
+            # Verificar si la variable exclusion está vacía
+            if [ -z "$NAMESPACE" ]; then
+                exclusion="default"
+            fi
+            
+            echo "El valor de NAMESPACE es: $NAMESPACE"
+
+
+            cd ..
+            # Enviar la variable exclusions a GitHub Actions
+            curl -L \
+                -X POST \
                 -H "Accept: application/vnd.github+json" \
                 -H "Authorization: Bearer ${{ env.GH_TOKEN }}" \
                 -H "X-GitHub-Api-Version: 2022-11-28" \
-                "https://api.github.com/repos/${{ env.OWNER }}/${{ matrix.repositorie }}/environments/$NE" \
-                -d "$BODY_ENV"
+                https://api.github.com/repos/${{ env.OWNER }}/${{ matrix.repositorie }}/actions/variables \
+                -d "{\"name\": \"exclusions\", \"value\": $exclusions_escaped}"
 
-              # Extraer el valor de 'variables' para el índice actual
-              VAR_ENV=$(jq -c ".[$i].variables" env.json)
+            curl -L \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ env.GH_TOKEN }}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/${{ env.OWNER}}/${{ matrix.repositorie }}/actions/variables \
+            -d "{\"name\": \"NAMESPACE\", \"value\": \"$NAMESPACE\"}"
+            
+            VAR_ENV=$(jq -c '.variables' var_rep.json) && echo "$VAR_ENV"
+            # Obtén la longitud del array
+            length=$(jq 'length' <<< "$VAR_ENV")
 
-              # Imprimir el valor de 'variables'
-              echo "VAR_ENV=$VAR_ENV"
+            # Itera sobre los elementos del array
+            for ((i = 0; i < length; i++)); do
+              # Extrae el elemento actual del array
+              current_element=$(jq --argjson index "$i" '.[$index]' <<< "$VAR_ENV")
 
-              # Obtén la longitud del array de variables
-              length=$(jq 'length' <<< "$VAR_ENV")
+              # Imprime el elemento actual (puedes hacer otras operaciones aquí)
+              echo "$current_element"
 
-              # Itera sobre los elementos del array de variables
-              for ((j = 0; j < length; j++)); do
-                  # Extrae el elemento actual del array de variables
-                  current_element=$(jq --argjson index "$j" '.[$index]' <<< "$VAR_ENV")
+              name=$(jq -r '.name' <<< "$current_element")
 
-                  # Imprime el elemento actual (puedes hacer otras operaciones aquí)
-                  echo "$current_element"
+              # Verifica si el valor del campo "name" es igual a "APPNAME"
+              if [ "$name" == "APPNAME" ]; then
+                  # Si es igual, establece el valor en "matrix"
+                  current_element=$(jq --arg project_name "$rep_name" '.value = $project_name' <<< "$current_element")
+              fi
 
-                  # Realiza la solicitud curl con el elemento actual para crear una variable en GitHub
-                  curl -L \
-                    -X POST \
-                    -H "Accept: application/vnd.github+json" \
-                    -H "Authorization: Bearer ${{ secrets.GH_PAT }}" \
-                    -H "X-GitHub-Api-Version: 2022-11-28" \
-                    "https://api.github.com/repos/${{ env.OWNER }}/${{ matrix.repositorie }}/environments/$NE/variables" \
-                    -d "$current_element"
-              done
-          done
+              # Verifica si el valor del campo "name" es igual a "PROJECTKEY"
+              if [ "$name" == "PROJECTKEY" ]; then
+                  # Si es igual, establece el valor en "matrix"
+                  current_element=$(jq --arg project_name "$project_name" '.value = $project_name' <<< "$current_element")
+              fi
+
+              # Realiza la solicitud curl con el elemento actual
+                curl -L \
+                -X POST \
+                -H "Accept: application/vnd.github+json" \
+                -H "Authorization: Bearer ${{ env.GH_TOKEN }}" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                https://api.github.com/repos/${{ env.OWNER}}/${{ matrix.repositorie }}/actions/variables \
+                -d "$current_element"
+            done
